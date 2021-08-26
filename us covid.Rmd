@@ -1,0 +1,163 @@
+---
+title: "US_covid"
+author: "Quang VU"
+date: "8/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r  warning = FALSE, message = FALSE}
+library(tidyverse)
+library(tidyquant)
+library(ggalt)
+library(states)
+library(geojsonio)
+library(RColorBrewer)
+library(rgeos)
+library(rgdal)
+library(broom)
+library(viridis)
+library(scales)
+library(magrittr)
+library(patchwork)
+```
+
+
+```{r}
+# importing data 
+read.csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv") %>%   
+  select(c(Province_State,X8.23.20,X8.23.21)) %>% 
+  group_by(Province_State) %>% 
+  summarise(across(everything(), sum)) %>% 
+  filter(Province_State %in% state.name) %>% 
+  mutate(Province_State = fct_reorder(Province_State, X8.23.21)) %>% 
+  rename(state=Province_State, year_2020 = X8.23.20, year_2021 = X8.23.21) %>% 
+  mutate(year_2020 = year_2020/1000, year_2021 = year_2021/1000) -> df_covid_us
+```
+
+
+```{r}
+df_covid_us %>% 
+  ggplot(aes(x = year_2020,
+             xend = year_2021,
+             y = state,
+             group = state)
+  ) +
+  
+  geom_dumbbell(
+    colour="#fec4c1",
+    colour_xend="#fa4542",
+    size=2.0,
+    dot_guide=TRUE,
+    dot_guide_size=0.1,
+    dot_guide_colour = "grey60",
+    show.legend = TRUE
+  ) +
+  
+  labs(
+    subtitle = "THE INCREASE IN THE NUMBER OF COVID 19 INFECTIONS WITHIN A YEAR IN THE US \n(UNIT: THOUSAND CASES)",
+    caption = "Data source: COVID-19 - (CSSE) at Johns Hopkins University | Author: Quang VU ",
+    x = "cases",
+    y = NULL)+
+  
+  theme(
+    text = element_text(color = "#22211d"),
+    panel.grid.minor.x = element_blank(),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA), 
+    panel.background = element_rect(fill = "#f5f5f2", color = NA), 
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    plot.caption = element_text(color = "#517add", face = "italic"),
+    plot.subtitle = element_text(size= 12, hjust=0, color = "#fa4542",face = "bold")
+  ) -> plot1
+
+plot1
+```
+```{r}
+# read data for mapplot 
+
+spdf <- geojson_read("D:/data/us_states_hexgrid.geojson",  what = "sp")
+
+spdf@data = spdf@data %>%
+  mutate(google_name = gsub(" \\(United States\\)", "", google_name))
+
+spdf_fortified <- tidy(spdf, region = "google_name")
+
+spdf_fortified %<>%
+  left_join(. , df_covid_us, by=c("id"="state")) %>% 
+  replace_na(list(year_2021 = 536.814)) %>% 
+  mutate(case = case_when(year_2021 < 1000 ~ " < 1000",
+                          year_2021 < 2000 ~ " < 2000",
+                          year_2021 < 3000 ~ " < 3000",
+                          year_2021 < 4000 ~ " < 4000",
+                          year_2021 > 4000 ~ " 4000 +"))
+
+state_name <- cbind.data.frame(data.frame(gCentroid(spdf, byid=TRUE), id=spdf@data$iso3166_2)) 
+
+state_us <- cbind.data.frame(id = state.abb,state = state.name)
+
+state_name %<>% 
+  left_join(state_us, id = id ) %>% 
+  left_join(df_covid_us, state = state) %>% 
+  replace_na(list(year_2021 = 536.814)) %>% 
+  mutate(text = paste0(id, "\n ", year_2021)) 
+
+
+```
+
+```{r}
+
+ggplot() +
+  
+  geom_polygon(data = spdf_fortified, aes(fill = case, x = long, y = lat, group = group) , size=1, col = "white") +
+  
+  geom_text(data=state_name, aes(x=x, y=y, label=text), color="#0F2346", size=2.7) +
+  
+  theme_void() +
+  
+  scale_fill_manual( 
+    values=rev(magma(8))[c(-1,-8)], 
+    guide = guide_legend( keyheight = unit(3, units = "mm"),
+                          keywidth=unit(12, units = "mm"),
+                          label.position = "bottom",
+                          title.position = 'top',
+                          nrow=1) 
+  ) +
+  
+  ggtitle( "A MAP OF COVID CASES IN US AS OF 23/08/2021 (UNIT: THOUSAND CASES)" ) +
+  
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.5, 0.9),
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#f5f5f2", color = NA), 
+    panel.background = element_rect(fill = "#f5f5f2", color = NA), 
+    legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    plot.title = element_text(size= 12, hjust=0.5, color = "#fa4542",face = "bold", margin = margin(b = -0.1, t = 0.4, l = 2, unit = "cm")),
+  ) -> plot2
+plot2
+```
+
+```{r , fig.dim = c(8.5, 12)}
+plot2/plot1 +   plot_layout(heights =  c(1, 1.8))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
